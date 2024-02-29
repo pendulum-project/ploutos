@@ -1217,15 +1217,24 @@ jobs:
             # This shouldn't be necessary...
             rm -f ${TARGET_DIR}/debian/*.deb
 
+            cargo build ${{needs.prepare.outputs.cargo_manifest_path_arg}} \
+              ${{needs.prepare.outputs.cargo_workspace_package_arg}} \
+              --release \
+              --locked \
+              -v \
+              ${EXTRA_BUILD_ARGS}
+
+            find ${TARGET_DIR}/release -maxdepth 1 -type f -executable -print0 | xargs -0 -I{} cp {} {}.dbg
+            chmod -x target/release/*.dbg
+            find ${TARGET_DIR}/release -maxdepth 1 -type f -executable | xargs strip -s -v
+
             cargo deb \
               ${{needs.prepare.outputs.cargo_manifest_path_arg}} \
               ${{needs.prepare.outputs.cargo_workspace_package_arg}} \
               --deb-version ${DEB_VER} \
               ${OPT_VARIANT_ARG} \
-              -v ${EXTRA_CARGO_DEB_ARGS} \
-              -- \
-              --locked \
-              ${EXTRA_BUILD_ARGS}
+              --no-build --no-strip \
+              -v ${EXTRA_CARGO_DEB_ARGS}
             ;;
 
           centos|rockylinux)
@@ -1313,6 +1322,8 @@ jobs:
               SCRIPTLETS='--metadata-overwrite=${{ inputs.rpm_scriptlets_path }}'
             fi
 
+            find ${TARGET_DIR}/release -maxdepth 1 -type f -executable -print0 | xargs -0 -I{} cp {} {}.dbg
+            chmod -x target/release/*.dbg
             find ${TARGET_DIR}/release -maxdepth 1 -type f -executable | xargs strip -s -v
 
             # This shouldn't be necessary...
@@ -1333,6 +1344,11 @@ jobs:
 
             ;;
         esac
+
+    - name: Tar the set of created binaries to upload
+      run: |
+        rm -f debug-symbols.tar
+        tar vpcf debug-symbols.tar target/release/*.dbg
 
     - name: Post-process the package
       run: |
@@ -1569,6 +1585,13 @@ jobs:
         path: |
           ${{ steps.create.outputs.target_dir }}/debian/*.deb
           ${{ steps.create.outputs.target_dir }}/generate-rpm/*.rpm
+    
+    - name: Upload debug symbols
+      uses: umutozd/upload-artifact@fixing-unrecognized-if-no-files-found-input-error
+      with:
+        name: ${{ inputs.artifact_prefix }}${{ steps.verify.outputs.pkg }}_${{ env.OS_NAME }}_${{ env.OS_REL }}_${{ matrix.target }}_dbg
+        path: |
+          debug-symbols.tar
 
   # -------------------------------------------------------------------------------------------------------------------
   # Job: 'pkg-test'
